@@ -9,34 +9,28 @@
     html, body { height:100%; margin:0; background:#0e0f13; color:#e6e6e6; font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; }
     model-viewer { width:100%; height:100%; display:block; }
 
-    /* Overlays */
-    #gate, #overlay {
+    /* Loading overlay (logo + spinner) */
+    #overlay {
       position:fixed; inset:0; display:flex; flex-direction:column;
       align-items:center; justify-content:center; gap:18px;
       background: radial-gradient(1000px 700px at 50% 40%, rgba(255,255,255,0.06), rgba(0,0,0,0.85));
       z-index:10; padding:20px; box-sizing:border-box; text-align:center;
     }
-    #gate { z-index: 11; }
     #brand img { max-width:70vw; width:520px; height:auto; display:block; filter: drop-shadow(0 6px 22px rgba(0,0,0,.45)); }
     .spinner { width:46px; height:46px; border-radius:50%; border:3px solid rgba(255,255,255,0.2); border-top-color:#fff; animation:spin 1s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
-    .btn { padding:10px 16px; border-radius:12px; border:1px solid rgba(255,255,255,0.25); background: rgba(255,255,255,0.08); color:#fff; cursor:pointer; }
+    .btn { padding:10px 16px; border-radius:12px; border:1px solid rgba(255,255,255,0.25); background: rgba(255,255,255,0.08); color:#fff; cursor:pointer; display:none; }
   </style>
+
   <!-- model-viewer web component -->
   <script type="module" src="https://unpkg.com/@google/model-viewer@latest/dist/model-viewer.min.js"></script>
 </head>
 <body>
-  <!-- Loading overlay (logo + spinner) -->
+  <!-- Loading overlay -->
   <div id="overlay" role="status" aria-live="polite">
     <div id="brand"><img src="./logo.png" alt="Golden Art" /></div>
     <div class="spinner" aria-hidden="true"></div>
-    <button id="retry" class="btn" style="display:none">Retry</button>
-  </div>
-
-  <!-- Tap-to-load gate for iPhone (avoids crashy cold-start) -->
-  <div id="gate" style="display:none">
-    <div id="brand"><img src="./logo.png" alt="Golden Art" /></div>
-    <button id="start" class="btn">Tap to load 3D</button>
+    <button id="retry" class="btn">Retry</button>
   </div>
 
   <model-viewer id="mv"
@@ -52,44 +46,39 @@
   </model-viewer>
 
   <script>
-    const isiOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
-      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-
     const p = new URLSearchParams(location.search);
     const url = p.get('model') || './models/T3_TIP1.glb';
 
     const mv = document.getElementById('mv');
-    const gate = document.getElementById('gate');
     const overlay = document.getElementById('overlay');
-    const startBtn = document.getElementById('start');
     const retryBtn = document.getElementById('retry');
 
-    // iPhone: wait for a tap to reduce initial memory spike
-    if (isiOS) {
-      gate.style.display = 'flex';
-      startBtn.addEventListener('click', () => {
-        gate.style.display = 'none';
-        mv.src = url;
-      });
-    } else {
-      gate.style.display = 'none';
-      mv.src = url;
-    }
+    // Auto-load on all devices (no tap gate)
+    mv.src = url;
 
-    mv.addEventListener('load', () => { overlay.style.display = 'none'; });
-    mv.addEventListener('error', () => {
-      // keep overlay visible with logo; show retry
-      retryBtn.style.display = 'inline-block';
-    });
-    retryBtn.addEventListener('click', () => { if (mv.src) mv.reload && mv.reload(); mv.src = ''; setTimeout(()=> mv.src = url, 0); });
-
-    // optional: clamp zoom a bit to reduce jitter on mobile
+    // When loaded: hide overlay and set a farther starting distance
     mv.addEventListener('load', () => {
-      const d = mv.idealCameraDistance || 1;
-      mv.setAttribute('min-camera-orbit', `auto auto ${Math.max(0.2, d*0.4)}m`);
-      mv.setAttribute('max-camera-orbit', `auto auto ${d*6}m`);
+      overlay.style.display = 'none';
+
+      // Start farther out so it doesn't feel zoomed-in
+      const d = (mv.idealCameraDistance || 1) * 3.5;   // increase/decrease multiplier to taste
+      mv.setAttribute('camera-orbit', `0deg 30deg ${d.toFixed(3)}m`);
+
+      // Comfortable zoom range + less jitter on mobile
+      const minR = Math.max(0.2, d * 0.25);
+      const maxR = d * 10.0;
+      mv.setAttribute('min-camera-orbit', `auto auto ${minR.toFixed(3)}m`);
+      mv.setAttribute('max-camera-orbit', `auto auto ${maxR.toFixed(3)}m`);
       mv.setAttribute('min-field-of-view', '18deg');
-      mv.setAttribute('max-field-of-view', '65deg');
+      mv.setAttribute('max-field-of-view', '70deg');
+    });
+
+    // If something fails, keep logo visible and show a retry button
+    mv.addEventListener('error', () => { retryBtn.style.display = 'inline-block'; });
+    retryBtn.addEventListener('click', () => {
+      retryBtn.style.display = 'none';
+      mv.src = '';            // force a reload
+      setTimeout(() => mv.src = url, 0);
     });
   </script>
 </body>
