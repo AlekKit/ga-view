@@ -9,8 +9,6 @@
     html, body { height:100%; margin:0; background:#0e0f13; color:#e6e6e6; font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; }
     #app { position:fixed; inset:0; }
     canvas { display:block; width:100%; height:100%; touch-action:none; }
-
-    /* Overlays (logo + spinner) */
     #gate, #overlay {
       position:fixed; inset:0; display:flex; flex-direction:column;
       align-items:center; justify-content:center; gap:18px;
@@ -19,20 +17,11 @@
     }
     #gate { z-index: 11; }
     #brand img { max-width:70vw; width:520px; height:auto; display:block; filter: drop-shadow(0 6px 22px rgba(0,0,0,.45)); }
-
-    .spinner {
-      width:46px; height:46px; border-radius:50%;
-      border:3px solid rgba(255,255,255,0.2);
-      border-top-color:#fff; animation:spin 1s linear infinite;
-    }
+    .spinner { width:46px; height:46px; border-radius:50%; border:3px solid rgba(255,255,255,0.2); border-top-color:#fff; animation:spin 1s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
-    .btn {
-      padding:10px 16px; border-radius:12px; border:1px solid rgba(255,255,255,0.25);
-      background: rgba(255,255,255,0.08); color:#fff; cursor:pointer;
-    }
+    .btn { padding:10px 16px; border-radius:12px; border:1px solid rgba(255,255,255,0.25); background: rgba(255,255,255,0.08); color:#fff; cursor:pointer; }
   </style>
 
-  <!-- three.js + loaders -->
   <script type="module">
     import * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js';
     import { OrbitControls } from 'https://unpkg.com/three@0.160.0/examples/jsm/controls/OrbitControls.js';
@@ -42,11 +31,9 @@
     const isiOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
                   (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
-    // Model URL: default to your model in /models; allow override via ?model=
     const qs = new URLSearchParams(location.search);
     const modelUrl = qs.get('model') || './models/T3_TIP1.glb';
 
-    // DOM
     const app = document.getElementById('app');
     const gate = document.getElementById('gate');
     const overlay = document.getElementById('overlay');
@@ -60,7 +47,6 @@
     const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.01, 2000);
     camera.position.set(2.4, 1.6, 3.2);
 
-    // Renderer (cap DPR on iOS to save VRAM)
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'low-power' });
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -72,17 +58,11 @@
     controls.enableDamping = true;
     controls.dampingFactor = 0.06;
 
-    // Lightweight lights
     scene.add(new THREE.HemisphereLight(0xffffff, 0x222244, 0.9));
-    const dir = new THREE.DirectionalLight(0xffffff, 0.9);
-    dir.position.set(6, 10, 8);
-    scene.add(dir);
+    const dir = new THREE.DirectionalLight(0xffffff, 0.9); dir.position.set(6, 10, 8); scene.add(dir);
 
-    // Loader
     const loader = new GLTFLoader();
-    const draco = new DRACOLoader();
-    draco.setDecoderPath('https://www.gstatic.com/draco/v1/decoders/');
-    loader.setDRACOLoader(draco);
+    const draco = new DRACOLoader(); draco.setDecoderPath('https://www.gstatic.com/draco/v1/decoders/'); loader.setDRACOLoader(draco);
     loader.setCrossOrigin('anonymous');
 
     function fitCamera(object, offset = 1.4) {
@@ -122,19 +102,12 @@
     animate();
 
     addEventListener('resize', () => {
-      camera.aspect = innerWidth / innerHeight;
-      camera.updateProjectionMatrix();
+      camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
       renderer.setSize(innerWidth, innerHeight);
     });
 
-    // iPhone: delay heavy work until a tap
-    if (isiOS) {
-      gate.style.display = 'flex';
-      startBtn.addEventListener('click', () => { gate.style.display = 'none'; loadModel(); });
-    } else {
-      gate.style.display = 'none';
-      loadModel();
-    }
+    if (isiOS) { gate.style.display = 'flex'; startBtn.addEventListener('click', () => { gate.style.display = 'none'; loadModel(); }); }
+    else { gate.style.display = 'none'; loadModel(); }
 
     retryBtn.addEventListener('click', () => loadModel());
   </script>
@@ -144,13 +117,13 @@
 
   <!-- Tap-to-load gate (iPhone) -->
   <div id="gate" style="display:none">
-    <div id="brand"><img src="./logo.png" alt="Golden Art" /></div>
+    <div id="brand"><img src="data:image/png;base64,{{PUT_BASE64_HERE}}" alt="Golden Art" /></div>
     <button id="start" class="btn">Tap to load 3D</button>
   </div>
 
   <!-- Loading overlay (logo + spinner only) -->
   <div id="overlay" style="display:none">
-    <div id="brand"><img src="./logo.png" alt="Golden Art" /></div>
+    <div id="brand"><img src="data:image/png;base64,{{PUT_BASE64_HERE}}" alt="Golden Art" /></div>
     <div class="spinner" aria-hidden="true"></div>
     <button id="retry" class="btn">Retry</button>
   </div>
