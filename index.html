@@ -61,7 +61,7 @@
       overlay.style.display = 'none';
 
       // Start farther out so it doesn't feel zoomed-in
-      const d = (mv.idealCameraDistance || 1) * 3.5;   // increase/decrease multiplier to taste
+      const d = (mv.idealCameraDistance || 1) * 5.5;   // increase/decrease multiplier to taste
       mv.setAttribute('camera-orbit', `0deg 30deg ${d.toFixed(3)}m`);
 
       // Comfortable zoom range + less jitter on mobile
