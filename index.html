@@ -35,6 +35,7 @@
 
   <model-viewer id="mv"
     camera-controls
+    camera-target="auto"
     touch-action="none"
     interaction-prompt="none"
     exposure="1"
@@ -53,32 +54,27 @@
     const overlay = document.getElementById('overlay');
     const retryBtn = document.getElementById('retry');
 
-    // Auto-load on all devices (no tap gate)
+    // Auto-load on all devices
     mv.src = url;
 
-    // When loaded: hide overlay and set a farther starting distance
+    // Hide overlay when ready; DO NOT set camera-orbit (keep default framing)
     mv.addEventListener('load', () => {
       overlay.style.display = 'none';
 
-      // Start farther out so it doesn't feel zoomed-in
-      const d = (mv.idealCameraDistance || 1) * 5.5;   // increase/decrease multiplier to taste
-      mv.setAttribute('camera-orbit', `0deg 30deg ${d.toFixed(3)}m`);
-
-      // Comfortable zoom range + less jitter on mobile
-      const minR = Math.max(0.2, d * 0.25);
-      const maxR = d * 10.0;
-      mv.setAttribute('min-camera-orbit', `auto auto ${minR.toFixed(3)}m`);
-      mv.setAttribute('max-camera-orbit', `auto auto ${maxR.toFixed(3)}m`);
+      // Only clamp zoom/FOV for comfort; don't touch starting orbit
+      const d = mv.idealCameraDistance || 1;
+      mv.setAttribute('min-camera-orbit', `auto auto ${Math.max(0.2, d * 0.5)}m`);
+      mv.setAttribute('max-camera-orbit', `auto auto ${d * 8}m`);
       mv.setAttribute('min-field-of-view', '18deg');
-      mv.setAttribute('max-field-of-view', '70deg');
+      mv.setAttribute('max-field-of-view', '65deg');
     });
 
     // If something fails, keep logo visible and show a retry button
     mv.addEventListener('error', () => { retryBtn.style.display = 'inline-block'; });
     retryBtn.addEventListener('click', () => {
       retryBtn.style.display = 'none';
-      mv.src = '';            // force a reload
-      setTimeout(() => mv.src = url, 0);
+      mv.src = '';
+      setTimeout(() => (mv.src = url), 0);
     });
   </script>
 </body>
