@@ -56,9 +56,16 @@
   </model-viewer>
 
   <script>
-    // Model from ?model=... else default
+    // ===== Configurable defaults (no URL params needed) =====
+    const DEFAULT_MODEL = './models/T3_TIP1.glb';
+    const DIST_MUL = 2.0;          // bring camera closer/farther (try 1.7–2.5)
+    const MIN_ZOOM_FACTOR = 0.35;   // min zoom relative to ideal distance
+    const MAX_ZOOM_FACTOR = 6.0;    // max zoom relative to ideal distance
+    const WATCHDOG_MS = 10000;      // retry if first load takes too long
+
+    // Pick model: allow ?model=... for convenience, but not required
     const params = new URLSearchParams(location.search);
-    const baseUrl = params.get('model') || './models/T3_TIP1.glb';
+    const baseUrl = params.get('model') || DEFAULT_MODEL;
 
     const mv = document.getElementById('mv');
     const overlay = document.getElementById('overlay');
@@ -66,46 +73,45 @@
     // Start loading immediately
     mv.src = baseUrl;
 
-    // Watchdog: if no 'load' in 10s, retry once with cache-buster
+    // Watchdog: if no 'load' in time, retry once with cache-buster
     let loaded = false, retried = false;
     const watchdog = setTimeout(() => {
       if (!loaded && !retried) {
         retried = true;
         const bust = baseUrl + (baseUrl.includes('?') ? '&' : '?') + 'v=' + Date.now();
-        mv.src = '';            // cancel current attempt
-        setTimeout(() => { mv.src = bust; }, 0);
+        mv.src = ''; setTimeout(() => { mv.src = bust; }, 0);
       }
-    }, 10000);
+    }, WATCHDOG_MS);
 
-    // On success: hide overlay and push camera farther back (keep angle)
+    // Success: hide overlay and adjust only the distance (keep angle)
     mv.addEventListener('load', () => {
       loaded = true;
       clearTimeout(watchdog);
       overlay.style.display = 'none';
 
       try {
-        const orbit = mv.getCameraOrbit();          // {theta, phi, radius}
-        const R = Math.max(orbit.radius || 1, 1) * 3; // tweak 2..5 if you want more distance
+        const orbit = mv.getCameraOrbit();                 // {theta, phi, radius}
+        const R = Math.max(orbit.radius || 1, 1) * DIST_MUL;
         mv.cameraOrbit = `${orbit.theta}rad ${orbit.phi}rad ${R}m`;
 
         const d = mv.idealCameraDistance || R;
-        mv.minCameraOrbit = `auto auto ${Math.max(0.2, d * 0.35)}m`;
-        mv.maxCameraOrbit = `auto auto ${d * 8}m`;
+        mv.minCameraOrbit = `auto auto ${Math.max(0.2, d * MIN_ZOOM_FACTOR)}m`;
+        mv.maxCameraOrbit = `auto auto ${d * MAX_ZOOM_FACTOR}m`;
         mv.minFieldOfView = '18deg';
         mv.maxFieldOfView = '65deg';
       } catch (_) {
-        // If getCameraOrbit isn't available yet, ignore — defaults still work.
+        // If getCameraOrbit isn't ready, ignore — defaults still work.
       }
     });
 
-    // On error: one more cache-bust retry if we haven't tried yet
+    // On error: one cache-bust retry if not tried yet
     mv.addEventListener('error', () => {
       if (!retried) {
         retried = true;
         const bust = baseUrl + (baseUrl.includes('?') ? '&' : '?') + 'v=' + Date.now();
         mv.src = ''; setTimeout(() => { mv.src = bust; }, 0);
       }
-      // overlay stays visible while retrying
+      // overlay remains while retry happens
     });
   </script>
 </body>
