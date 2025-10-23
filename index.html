@@ -4,6 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
   <title>GA 3D Viewer</title>
+
   <style>
     :root { color-scheme: dark; }
     html, body { height:100%; margin:0; background:#0e0f13; color:#e6e6e6; font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; }
@@ -19,20 +20,26 @@
     #brand img { max-width:70vw; width:520px; height:auto; display:block; filter: drop-shadow(0 6px 22px rgba(0,0,0,.45)); }
     .spinner { width:46px; height:46px; border-radius:50%; border:3px solid rgba(255,255,255,0.2); border-top-color:#fff; animation:spin 1s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
-    .btn { padding:10px 16px; border-radius:12px; border:1px solid rgba(255,255,255,0.25); background: rgba(255,255,255,0.08); color:#fff; cursor:pointer; display:none; }
   </style>
 
-  <!-- model-viewer web component -->
-  <script type="module" src="https://unpkg.com/@google/model-viewer@latest/dist/model-viewer.min.js"></script>
+  <!-- Pin model-viewer + fallback CDN -->
+  <script type="module" src="https://unpkg.com/@google/model-viewer@3.3.0/dist/model-viewer.min.js"></script>
+  <script type="module" onerror="
+    var s=document.createElement('script');
+    s.type='module';
+    s.src='https://cdn.jsdelivr.net/npm/@google/model-viewer@3.3.0/dist/model-viewer.min.js';
+    document.head.appendChild(s);
+  "></script>
 </head>
+
 <body>
   <!-- Loading overlay -->
   <div id="overlay" role="status" aria-live="polite">
     <div id="brand"><img src="./logo.png" alt="Golden Art" /></div>
     <div class="spinner" aria-hidden="true"></div>
-    <button id="retry" class="btn">Retry</button>
   </div>
 
+  <!-- Viewer -->
   <model-viewer id="mv"
     camera-controls
     camera-target="auto"
@@ -43,38 +50,68 @@
     environment-image="neutral"
     reveal="auto"
     loading="eager"
+    draco-decoder-path="https://www.gstatic.com/draco/versioned/decoders/1.5.6/"
+    ktx2-transcoder-path="https://unpkg.com/@google/model-viewer@3.3.0/dist/"
     alt="3D model">
   </model-viewer>
 
   <script>
-    const p = new URLSearchParams(location.search);
-    const url = p.get('model') || './models/T3_TIP1.glb';
+    // ===== Configurable defaults (no URL params needed) =====
+    const DEFAULT_MODEL = './models/T3_TIP1.glb';
+    const DIST_MUL = 2.0;          // bring camera closer/farther (try 1.7–2.5)
+    const MIN_ZOOM_FACTOR = 0.35;   // min zoom relative to ideal distance
+    const MAX_ZOOM_FACTOR = 6.0;    // max zoom relative to ideal distance
+    const WATCHDOG_MS = 10000;      // retry if first load takes too long
+
+    // Pick model: allow ?model=... for convenience, but not required
+    const params = new URLSearchParams(location.search);
+    const baseUrl = params.get('model') || DEFAULT_MODEL;
 
     const mv = document.getElementById('mv');
     const overlay = document.getElementById('overlay');
-    const retryBtn = document.getElementById('retry');
 
-    // Auto-load on all devices
-    mv.src = url;
+    // Start loading immediately
+    mv.src = baseUrl;
 
-    // Hide overlay when ready; DO NOT set camera-orbit (keep default framing)
+    // Watchdog: if no 'load' in time, retry once with cache-buster
+    let loaded = false, retried = false;
+    const watchdog = setTimeout(() => {
+      if (!loaded && !retried) {
+        retried = true;
+        const bust = baseUrl + (baseUrl.includes('?') ? '&' : '?') + 'v=' + Date.now();
+        mv.src = ''; setTimeout(() => { mv.src = bust; }, 0);
+      }
+    }, WATCHDOG_MS);
+
+    // Success: hide overlay and adjust only the distance (keep angle)
     mv.addEventListener('load', () => {
+      loaded = true;
+      clearTimeout(watchdog);
       overlay.style.display = 'none';
 
-      // Only clamp zoom/FOV for comfort; don't touch starting orbit
-      const d = mv.idealCameraDistance || 1;
-      mv.setAttribute('min-camera-orbit', `auto auto ${Math.max(0.2, d * 0.5)}m`);
-      mv.setAttribute('max-camera-orbit', `auto auto ${d * 8}m`);
-      mv.setAttribute('min-field-of-view', '18deg');
-      mv.setAttribute('max-field-of-view', '65deg');
+      try {
+        const orbit = mv.getCameraOrbit();                 // {theta, phi, radius}
+        const R = Math.max(orbit.radius || 1, 1) * DIST_MUL;
+        mv.cameraOrbit = `${orbit.theta}rad ${orbit.phi}rad ${R}m`;
+
+        const d = mv.idealCameraDistance || R;
+        mv.minCameraOrbit = `auto auto ${Math.max(0.2, d * MIN_ZOOM_FACTOR)}m`;
+        mv.maxCameraOrbit = `auto auto ${d * MAX_ZOOM_FACTOR}m`;
+        mv.minFieldOfView = '18deg';
+        mv.maxFieldOfView = '65deg';
+      } catch (_) {
+        // If getCameraOrbit isn't ready, ignore — defaults still work.
+      }
     });
 
-    // If something fails, keep logo visible and show a retry button
-    mv.addEventListener('error', () => { retryBtn.style.display = 'inline-block'; });
-    retryBtn.addEventListener('click', () => {
-      retryBtn.style.display = 'none';
-      mv.src = '';
-      setTimeout(() => (mv.src = url), 0);
+    // On error: one cache-bust retry if not tried yet
+    mv.addEventListener('error', () => {
+      if (!retried) {
+        retried = true;
+        const bust = baseUrl + (baseUrl.includes('?') ? '&' : '?') + 'v=' + Date.now();
+        mv.src = ''; setTimeout(() => { mv.src = bust; }, 0);
+      }
+      // overlay remains while retry happens
     });
   </script>
 </body>
