@@ -7,9 +7,11 @@
   <style>
     :root { color-scheme: dark; }
     html, body { height:100%; margin:0; background:#0e0f13; color:#e6e6e6; font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; }
-    model-viewer { width:100%; height:100%; display:block; }
+    #app, model-viewer { width:100%; height:100%; display:block; }
+    #app { position:fixed; inset:0; }
+    canvas { display:block; width:100%; height:100%; touch-action:none; }
 
-    /* Loading overlay (logo + spinner) */
+    /* Overlay (logo + spinner) */
     #overlay {
       position:fixed; inset:0; display:flex; flex-direction:column;
       align-items:center; justify-content:center; gap:18px;
@@ -22,17 +24,161 @@
     .btn { padding:10px 16px; border-radius:12px; border:1px solid rgba(255,255,255,0.25); background: rgba(255,255,255,0.08); color:#fff; cursor:pointer; display:none; }
   </style>
 
-  <!-- model-viewer web component -->
-  <script type="module" src="https://unpkg.com/@google/model-viewer@latest/dist/model-viewer.min.js"></script>
+  <!-- model-viewer for non-iOS (pinned + fallback) -->
+  <script id="mv-script" type="module" src="https://unpkg.com/@google/model-viewer@3.3.0/dist/model-viewer.min.js"></script>
+  <script type="module" onerror="
+    var s=document.createElement('script');
+    s.type='module';
+    s.src='https://cdn.jsdelivr.net/npm/@google/model-viewer@3.3.0/dist/model-viewer.min.js';
+    document.head.appendChild(s);
+  "></script>
+
+  <!-- three.js modules for iOS path -->
+  <script type="module" id="three-modules">
+    import * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js';
+    import { OrbitControls } from 'https://unpkg.com/three@0.160.0/examples/jsm/controls/OrbitControls.js';
+    import { GLTFLoader } from 'https://unpkg.com/three@0.160.0/examples/jsm/loaders/GLTFLoader.js';
+    import { DRACOLoader } from 'https://unpkg.com/three@0.160.0/examples/jsm/loaders/DRACOLoader.js';
+
+    const isiOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+                  (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+    const p = new URLSearchParams(location.search);
+    const baseUrl = p.get('model') || './models/T3_TIP1.glb';
+
+    const overlay = document.getElementById('overlay');
+    const retryBtn = document.getElementById('retry');
+
+    if (!isiOS) {
+      // Use <model-viewer> on non-iOS
+      const mv = document.getElementById('mv');
+      const openRaw = document.getElementById('openRaw');
+      openRaw.href = baseUrl;
+
+      // Load with a watchdog (retry with cache-bust once)
+      let loaded = false, retried = false;
+      const watchdog = setTimeout(() => {
+        if (!loaded && !retried) {
+          retried = true;
+          const bust = baseUrl + (baseUrl.includes('?') ? '&' : '?') + 'v=' + Date.now();
+          mv.src = bust; openRaw.href = bust;
+        }
+      }, 10000);
+
+      mv.addEventListener('load', () => {
+        loaded = true; clearTimeout(watchdog);
+        overlay.style.display = 'none';
+
+        // Keep angle, push distance a bit (avoid cramped start)
+        const orbit = mv.getCameraOrbit();
+        const R = (orbit.radius || 1) * 3;
+        mv.cameraOrbit = `${orbit.theta}rad ${orbit.phi}rad ${R}m`;
+
+        const d = mv.idealCameraDistance || R;
+        mv.minCameraOrbit = `auto auto ${Math.max(0.2, d * 0.35)}m`;
+        mv.maxCameraOrbit = `auto auto ${d * 8}m`;
+        mv.minFieldOfView = '18deg';
+        mv.maxFieldOfView = '65deg';
+      });
+
+      mv.addEventListener('error', () => { retryBtn.style.display = 'inline-block'; });
+      retryBtn.addEventListener('click', () => {
+        retryBtn.style.display = 'none';
+        const bust = baseUrl + (baseUrl.includes('?') ? '&' : '?') + 'v=' + Date.now();
+        mv.src = ''; setTimeout(() => { mv.src = bust; openRaw.href = bust; }, 0);
+      });
+
+      mv.src = baseUrl;
+      return;
+    }
+
+    // --- iOS path: lightweight three.js viewer with DPR=1 (auto-load) ---
+    document.getElementById('mv').style.display = 'none';
+    document.getElementById('app').style.display = 'block';
+
+    const app = document.getElementById('app');
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x0e0f13);
+
+    const camera = new THREE.PerspectiveCamera(60, innerWidth/innerHeight, 0.01, 2000);
+    camera.position.set(2.4, 1.6, 3.2);
+
+    const renderer = new THREE.WebGLRenderer({ antialias:true, alpha:true, powerPreference:'low-power' });
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.setPixelRatio(1);                 // critical: DPR=1 on iPhone
+    renderer.setSize(innerWidth, innerHeight);
+    app.appendChild(renderer.domElement);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true; controls.dampingFactor = 0.06;
+
+    scene.add(new THREE.HemisphereLight(0xffffff, 0x222244, 0.9));
+    const dir = new THREE.DirectionalLight(0xffffff, 0.9); dir.position.set(6,10,8); scene.add(dir);
+
+    const loader = new GLTFLoader();
+    const draco = new DRACOLoader(); draco.setDecoderPath('https://www.gstatic.com/draco/v1/decoders/'); loader.setDRACOLoader(draco);
+    loader.setCrossOrigin('anonymous');
+
+    function fitCamera(object, offset=1.4){
+      const box = new THREE.Box3().setFromObject(object);
+      const size = new THREE.Vector3(); const center = new THREE.Vector3();
+      box.getSize(size); box.getCenter(center);
+      const maxDim = Math.max(size.x,size.y,size.z) || 1.0;
+      const fov = camera.fov * (Math.PI/180);
+      const dist = Math.abs(maxDim/(2*Math.tan(fov/2))) * offset;
+      camera.position.set(center.x + dist*0.6, center.y + dist*0.45, center.z + dist);
+      controls.target.copy(center); controls.update();
+    }
+
+    let root=null, loaded=false, retried=false;
+    function tryLoad(url){
+      loader.load(url, (gltf)=>{
+        root && scene.remove(root);
+        root = gltf.scene || gltf.scenes[0];
+        root.traverse(o => { if (o.isMesh){ o.castShadow=false; o.receiveShadow=false; } });
+        scene.add(root);
+        fitCamera(root, 1.4);
+        overlay.style.display = 'none';
+        loaded = true;
+      }, undefined, (err)=>{
+        // Retry once with cache-bust
+        if (!retried){
+          retried = true;
+          const bust = url + (url.includes('?') ? '&' : '?') + 'v=' + Date.now();
+          tryLoad(bust);
+        }else{
+          // keep overlay visible; allow manual retry
+          document.getElementById('retry').style.display='inline-block';
+        }
+      });
+    }
+
+    // watchdog: if decode stalls for too long, retry with cache-bust
+    setTimeout(()=>{ if (!loaded && !retried){ retried=true; tryLoad(baseUrl + (baseUrl.includes('?')?'&':'?') + 'v=' + Date.now()); }}, 10000);
+
+    tryLoad(baseUrl);
+
+    function animate(){ controls.update(); renderer.render(scene, camera); requestAnimationFrame(animate); } animate();
+    addEventListener('resize', ()=>{ camera.aspect = innerWidth/innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
+
+    document.getElementById('retry').addEventListener('click', ()=>{
+      document.getElementById('retry').style.display='none';
+      retried=false; loaded=false; tryLoad(baseUrl + (baseUrl.includes('?')?'&':'?') + 'v=' + Date.now());
+    });
+  </script>
 </head>
 <body>
-  <!-- Loading overlay -->
   <div id="overlay" role="status" aria-live="polite">
     <div id="brand"><img src="./logo.png" alt="Golden Art" /></div>
     <div class="spinner" aria-hidden="true"></div>
-    <button id="retry" class="btn">Retry</button>
+    <div style="margin-top:6px;">
+      <button id="retry" class="btn">Retry</button>
+      <a id="openRaw" class="btn" href="#" target="_blank" rel="noopener" style="display:inline-block">Open file</a>
+    </div>
   </div>
 
+  <!-- non-iOS viewer -->
   <model-viewer id="mv"
     camera-controls
     camera-target="auto"
@@ -46,36 +192,7 @@
     alt="3D model">
   </model-viewer>
 
-  <script>
-    const p = new URLSearchParams(location.search);
-    const url = p.get('model') || './models/T3_TIP1.glb';
-
-    const mv = document.getElementById('mv');
-    const overlay = document.getElementById('overlay');
-    const retryBtn = document.getElementById('retry');
-
-    // Auto-load on all devices
-    mv.src = url;
-
-    // Hide overlay when ready; DO NOT set camera-orbit (keep default framing)
-    mv.addEventListener('load', () => {
-      overlay.style.display = 'none';
-
-      // Only clamp zoom/FOV for comfort; don't touch starting orbit
-      const d = mv.idealCameraDistance || 1;
-      mv.setAttribute('min-camera-orbit', `auto auto ${Math.max(0.2, d * 0.5)}m`);
-      mv.setAttribute('max-camera-orbit', `auto auto ${d * 8}m`);
-      mv.setAttribute('min-field-of-view', '18deg');
-      mv.setAttribute('max-field-of-view', '65deg');
-    });
-
-    // If something fails, keep logo visible and show a retry button
-    mv.addEventListener('error', () => { retryBtn.style.display = 'inline-block'; });
-    retryBtn.addEventListener('click', () => {
-      retryBtn.style.display = 'none';
-      mv.src = '';
-      setTimeout(() => (mv.src = url), 0);
-    });
-  </script>
+  <!-- iOS canvas mount -->
+  <div id="app" style="display:none"></div>
 </body>
 </html>
